@@ -41,7 +41,7 @@ TEST_CASE("tbmr execution", "[tbmr][example][.]")
     Mat image     = imread((data / "graf1.pgm").string(), ImreadModes::IMREAD_GRAYSCALE);
 
     // TBMRs extraction on Max-tree
-    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.01);
+    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.01f);
 
     StopWatch sw;
     std::vector<xfeatures2d::Elliptic_KeyPoint> tbmrs;
@@ -79,7 +79,7 @@ TEST_CASE("tbmr comparison", "[tbmr][resizing][.]")
     Mat ima       = imread((data / "graf1.pgm").string(), ImreadModes::IMREAD_GRAYSCALE);
 
     // TBMRs extraction on Max-tree
-    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.01);
+    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.01f);
 
     StopWatch sw;
     std::vector<xfeatures2d::Elliptic_KeyPoint> tbmrs;
@@ -250,29 +250,32 @@ TEST_CASE("evaluation data generation", "[eval][tbmr_sift][.]")
 
 TEST_CASE("tbmr matching test", "[tbmr][matching][.]")
 {
-    fs::path data = getDataPath();
-    Mat ima       = imread((data / "graf1.pgm").string(), ImreadModes::IMREAD_GRAYSCALE);
-    Mat ima2;
-    rotate(ima, ima2, RotateFlags::ROTATE_90_CLOCKWISE);
+    fs::path data = getDataPath() / "graf";
 
-    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.01);
+    Mat ima  = imread((data / "img1.ppm").string(), ImreadModes::IMREAD_GRAYSCALE);
+    Mat ima2 = imread((data / "img2.ppm").string(), ImreadModes::IMREAD_GRAYSCALE);
+
+    auto tbmrAlgo = xfeatures2d::TBMR::create(30, 0.1f);
 
     StopWatch sw;
-    std::vector<KeyPoint> imaTbmrs, ima2Tbmrs;
+
+    Mat imaDescriptors, ima2Descriptors;
+    std::vector<xfeatures2d::Elliptic_KeyPoint> imaTbmrs, ima2Tbmrs;
     tbmrAlgo->detect(ima, imaTbmrs);
     tbmrAlgo->detect(ima2, ima2Tbmrs);
 
-    // displayKeyPoints("tbmrs", ima, imaTbmrs);
-    // cv::waitKey(0);
+    displayKeyPoints("tbmrs", ima, imaTbmrs);
+    displayKeyPoints("tbmrs2", ima2, ima2Tbmrs);
+    cv::waitKey(0);
 
-    Mat imaDescriptors, ima2Descriptors;
+
     bool useOrientation = true;
-    auto sift           = xfeatures2d::SIFT::create();
 
-    // Compute descriptors
-    sift->compute(ima, imaTbmrs, imaDescriptors);
-    sift->compute(ima2, ima2Tbmrs, ima2Descriptors);
 
+    auto sift = xfeatures2d::SiftDescriptorExtractor::create();
+    auto dac  = xfeatures2d::AffineFeature2D::create(tbmrAlgo, sift);
+    dac->detectAndCompute(ima, Mat::ones(ima.size(), CV_8U), imaTbmrs, imaDescriptors);
+    dac->detectAndCompute(ima2, Mat::ones(ima.size(), CV_8U), ima2Tbmrs, ima2Descriptors);
 
     auto matcher = BFMatcher::create();
 
@@ -280,12 +283,24 @@ TEST_CASE("tbmr matching test", "[tbmr][matching][.]")
     matcher->match(imaDescriptors, ima2Descriptors, matches);
     // xfeatures2d::matchGMS(ima.size(), ima2.size(), imaTbmrs, ima2Tbmrs, matches, matches2, false, false, 0.001);
 
-    vector<Point2f> matchesPts, matchesPts2;
-    KeyPoint::convert(imaTbmrs, matchesPts);
-    KeyPoint::convert(ima2Tbmrs, matchesPts2);
+    std::vector<Point2f> obj;
+    std::vector<Point2f> scene;
+    for (size_t i = 0; i < matches.size(); i++)
+    {
+        //-- Get the keypoints from the good matches
+        obj.push_back(imaTbmrs[matches[i].queryIdx].pt);
+        scene.push_back(ima2Tbmrs[matches[i].trainIdx].pt);
+    }
+
+    // Mat hmg(4, 4, CV_64F);
+    //
+    // std::ifstream source((data / ("H1to2p")).string(), std::ios_base::in); // build a read-Stream
+    // hmg.at<double>(0, 0);
 
     Mat hmgmask;
-    Mat hmg = findHomography(matchesPts, matchesPts2, hmgmask, RANSAC);
+
+
+    Mat hmg = findHomography(obj, scene, hmgmask, RANSAC);
 
     if (!hmgmask.empty())
     {
@@ -302,18 +317,112 @@ TEST_CASE("tbmr matching test", "[tbmr][matching][.]")
         LOG_INFO("Homography found with %d good, %d bad corres.", cntCorr, cntWron);
     }
 
-    Mat outImg;
-    drawMatches(ima, imaTbmrs, ima2, ima2Tbmrs, matches, outImg);
+    std::vector<KeyPoint> imaTbmrs_, ima2Tbmrs_;
+    for (int i = 0; i < imaTbmrs.size(); ++i)
+        imaTbmrs_.push_back(ima2Tbmrs[i]);
+    for (int i = 0; i < imaTbmrs.size(); ++i)
+        ima2Tbmrs_.push_back(ima2Tbmrs[i]);
 
+    Mat outImg;
+    drawMatches(ima, imaTbmrs_, ima2, ima2Tbmrs_, matches, outImg);
+    imshow("matches", outImg);
+    waitKey(0);
 
     if (!hmg.empty())
     {
         float repeatability;
         int correspCnt;
-        evaluateFeatureDetector(ima, ima2, hmg, &imaTbmrs, &ima2Tbmrs, repeatability, correspCnt, tbmrAlgo);
+        evaluateFeatureDetector(ima, ima2, hmg, &imaTbmrs_, &ima2Tbmrs_, repeatability, correspCnt, tbmrAlgo);
         LOG_INFO("Eval: Repeatability: %f. CorrespCnt: %d", repeatability, correspCnt);
     }
 
-    imshow("matches", outImg);
     waitKey(0);
+}
+
+
+TEST_CASE("tbmr contrast changes", "[tbmr][contrast]")
+{
+    std::string which = "";
+
+    fs::path data = getDataPath() / which;
+
+    std::string name = "";
+    Ptr<Feature2D> algo;
+    SECTION("SIFT")
+    {
+        algo = xfeatures2d::SIFT::create(0, 3, 0.02);
+        name = "dog";
+    }
+    SECTION("TBMR")
+    {
+        algo = xfeatures2d::TBMR::create(30, 0.1f);
+        name = "tbmr";
+    }
+    SECTION("STBMR")
+    {
+        algo = xfeatures2d::TBMR::create(30, 0.1f, 2., 4);
+        name = "tbmr4";
+    }
+    SECTION("MSER")
+    {
+        algo = MSER::create(4, 10);
+        name = "mser";
+    }
+
+    {
+        StopWatch sw;
+        string imName  = "cerfm80.png";
+        string im2Name = "cerfp80.png";
+        Mat image      = imread((data / imName).string(), ImreadModes::IMREAD_COLOR);
+        Mat new_image  = imread((data / im2Name).string(), ImreadModes::IMREAD_COLOR);
+
+        // cut rectangular snip:
+        Rect snip   = Rect(1246, 2088, 500, 300);
+        Mat region0 = image;
+        Mat region1 = new_image;
+        rectangle(region0, snip, Scalar(0, 0, 255), 8);
+        rectangle(region1, snip, Scalar(0, 0, 255), 8);
+        resize(region0, region0, Size(), 0.5, 0.5);
+        resize(region1, region1, Size(), 0.5, 0.5);
+
+
+        image     = image(snip);
+        new_image = new_image(snip);
+
+        Mat old, nic;
+        cvtColor(image, old, cv::ColorConversionCodes::COLOR_BGR2GRAY);
+        cvtColor(new_image, nic, cv::ColorConversionCodes::COLOR_BGR2GRAY);
+
+
+        std::vector<KeyPoint> kp0, kp1;
+        algo->detect(old, kp0);
+        algo->detect(nic, kp1);
+
+        LOG_INFO("Comparing %d and %d features", kp0.size(), kp1.size());
+        auto dspl0 = displayKeyPoints("original", old, kp0, Scalar(0, 255, 255));
+        auto dspl1 = displayKeyPoints("contrast", nic, kp1, Scalar(0, 255, 255));
+
+        int dissimilar = 0;
+        int similar    = 0;
+        for (auto& kp : kp0)
+        {
+            bool found = false;
+            for (auto nw : kp1)
+                if ((kp.pt - nw.pt).inside(Rect2f(-1, -1, 2, 2)) && (kp.size - nw.size) < 1)
+                    found = true;
+
+            if (!found)
+                dissimilar++;
+            else
+                similar++;
+        }
+        LOG_INFO("%s Has %d similar and %d dissimilar points = (%f)", name.c_str(), similar, dissimilar,
+                 (dissimilar * 100 / ((double)dissimilar + similar)));
+
+        imwrite((data / ("cerfm80_" + name + ".png")).string(), dspl0);
+        imwrite((data / ("cerfp80_" + name + ".png")).string(), dspl1);
+        imwrite((data / "cerfm80region.png").string(), region0);
+        imwrite((data / "cerfp80region.png").string(), region1);
+        waitKey(0);
+    }
 }

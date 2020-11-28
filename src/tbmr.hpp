@@ -51,9 +51,9 @@ public:
 #endif
 
 static Mat displayKeyPoints(const std::string& title,
-                        cv::Mat image,
-                        const vector<xfeatures2d::Elliptic_KeyPoint>& TBMRS,
-                        cv::Scalar color = cv::Scalar(0, 0, 255))
+                            cv::Mat image,
+                            const vector<xfeatures2d::Elliptic_KeyPoint>& TBMRS,
+                            cv::Scalar color = cv::Scalar(0, 0, 255))
 {
     cv::Mat img;
     if (image.channels() != 3)
@@ -65,6 +65,29 @@ static Mat displayKeyPoints(const std::string& title,
     for (auto& t : TBMRS)
     {
         cv::ellipse(img, t.pt, t.axes, (float)(t.angle * 180. / CV_PI), 0, 360, color);
+    }
+
+    cv::namedWindow(title, cv::WindowFlags::WINDOW_NORMAL);
+    cv::imshow(title, img);
+    cv::waitKey(1);
+    return img;
+}
+
+static Mat displayKeyPoints(const std::string& title,
+                            cv::Mat image,
+                            const vector<KeyPoint>& TBMRS,
+                            cv::Scalar color = cv::Scalar(0, 0, 255))
+{
+    cv::Mat img;
+    if (image.channels() != 3)
+        cv::cvtColor(image, img, cv::ColorConversionCodes::COLOR_GRAY2BGR);
+    else
+        img = image;
+
+    // display:
+    for (auto& t : TBMRS)
+    {
+        cv::circle(img, t.pt, 3, color, 2);
     }
 
     cv::namedWindow(title, cv::WindowFlags::WINDOW_NORMAL);
